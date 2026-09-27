@@ -33,7 +33,7 @@ function toParts(label: string, file: ReconcileFilePart): ContentPart[] {
 export const runReconciliation = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => inputSchema.parse(data))
   .handler(async ({ data }) => {
-    const apiKey = process.env["LOVABLE_API_KEY"];
+    const apiKey = process.env["OPENAI_API_KEY"];
     if (!apiKey) throw new Error("سرویس هوش مصنوعی پیکربندی نشده است.");
 
     const content: ContentPart[] = [
@@ -44,11 +44,11 @@ export const runReconciliation = createServerFn({ method: "POST" })
       ...data.files.flatMap((file, i) => toParts(`FILE_${i + 1}`, file)),
     ];
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "google/gemini-2.5-pro",
+        model: "gpt-5",
         messages: [
           { role: "system", content: AI_SYSTEM_PROMPT },
           { role: "user", content },
