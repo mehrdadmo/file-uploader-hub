@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { CheckCircle2, FileSpreadsheet, FileText, Loader2, ScanLine, Upload } from "lucide-react";
+import { CheckCircle2, FileSpreadsheet, FileText, Loader2, Upload, X } from "lucide-react";
 
 import { ACCEPTED, exportReportToExcel, toFilePart } from "@/lib/file-input";
 import { runReconciliation } from "@/lib/reconcile.functions";
@@ -26,37 +26,25 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type Slot = "scanned" | "original" | "excel";
-
-const SLOTS: { key: Slot; title: string; hint: string; icon: typeof ScanLine }[] = [
-  {
-    key: "scanned",
-    title: "۱. لیست اسکن‌شده",
-    hint: "تصویر یا PDF اسکن لیست تأمین‌کننده",
-    icon: ScanLine,
-  },
-  {
-    key: "original",
-    title: "۲. لیست اصلی (دیجیتال)",
-    hint: "نسخه اصلی لیست تأمین اجتماعی",
-    icon: FileText,
-  },
-  {
-    key: "excel",
-    title: "۳. فایل اکسل",
-    hint: "فایل Excel برای مقایسه با لیست مرجع",
-    icon: FileSpreadsheet,
-  },
-];
-
 function Index() {
-  const [files, setFiles] = useState<Partial<Record<Slot, File>>>({});
+  const [files, setFiles] = useState<File[]>([]);
   const [status, setStatus] = useState<"idle" | "working" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<string | null>(null);
   const [approved, setApproved] = useState(false);
+  const [dragging, setDragging] = useState(false);
 
-  const ready = Boolean(files.scanned && files.original && files.excel);
+  const ready = files.length > 0;
+
+  function addFiles(list: FileList | null) {
+    if (!list) return;
+    const incoming = Array.from(list);
+    setFiles((prev) => {
+      const key = (f: File) => `${f.name}-${f.size}`;
+      const seen = new Set(prev.map(key));
+      return [...prev, ...incoming.filter((f) => !seen.has(key(f)))].slice(0, 20);
+    });
+  }
 
   async function start() {
     if (!ready) return;
@@ -65,12 +53,8 @@ function Index() {
     setReport(null);
     setApproved(false);
     try {
-      const [scanned, original, excel] = await Promise.all([
-        toFilePart(files.scanned!),
-        toFilePart(files.original!),
-        toFilePart(files.excel!),
-      ]);
-      const result = await runReconciliation({ data: { scanned, original, excel } });
+      const parts = await Promise.all(files.map(toFilePart));
+      const result = await runReconciliation({ data: { files: parts } });
       setReport(result.html);
       setStatus("done");
     } catch (e) {
@@ -82,46 +66,66 @@ function Index() {
   return (
     <div dir="rtl" className="min-h-screen bg-background font-sans text-foreground">
       <header className="border-b border-border bg-card">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-6">
+        <div className="mx-auto flex max-w-5xl items-center px-6 py-6">
           <div>
             <h1 className="text-xl font-bold tracking-tight">سامانه مغایرت‌گیری لیست بیمه</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               بارگذاری فایل‌ها، تطبیق هوشمند، بررسی گزارش و خروجی اکسل
             </p>
           </div>
-          <span className="rounded-full bg-accent px-3 py-1 text-xs font-medium text-accent-foreground">
-            GPT-6 Luna
-          </span>
+
         </div>
       </header>
 
       <main className="mx-auto max-w-5xl space-y-8 px-6 py-10">
-        <section className="grid gap-4 md:grid-cols-3">
-          {SLOTS.map(({ key, title, hint, icon: Icon }) => (
-            <label
-              key={key}
-              className="group flex cursor-pointer flex-col gap-3 rounded-xl border border-dashed border-border bg-card p-5 transition-colors hover:border-primary"
-            >
-              <span className="flex items-center gap-2 text-sm font-semibold">
-                <Icon className="size-4 text-primary" />
-                {title}
-              </span>
-              <span className="text-xs text-muted-foreground">{hint}</span>
-              <span className="mt-auto flex items-center gap-2 rounded-lg bg-secondary px-3 py-2 text-xs text-secondary-foreground">
-                <Upload className="size-3.5 shrink-0" />
-                <span className="truncate">{files[key]?.name ?? "انتخاب فایل"}</span>
-              </span>
-              <input
-                type="file"
-                accept={ACCEPTED}
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) setFiles((prev) => ({ ...prev, [key]: file }));
-                }}
-              />
-            </label>
-          ))}
+        <section className="space-y-3">
+          <label
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              addFiles(e.dataTransfer.files);
+            }}
+            className={`flex cursor-pointer flex-col items-center gap-3 rounded-xl border-2 border-dashed bg-card p-10 text-center transition-colors hover:border-primary ${dragging ? "border-primary" : "border-border"}`}
+          >
+            <Upload className="size-8 text-primary" />
+            <span className="text-sm font-semibold">فایل‌ها را اینجا رها کنید یا کلیک کنید</span>
+            <span className="text-xs text-muted-foreground">
+              لیست اسکن‌شده، لیست اصلی و فایل اکسل — PDF، اکسل، JPG یا PNG (چند فایل با هم)
+            </span>
+            <input
+              type="file"
+              multiple
+              accept={ACCEPTED}
+              className="hidden"
+              onChange={(e) => {
+                addFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          {files.length > 0 && (
+            <ul className="divide-y divide-border rounded-xl border border-border bg-card">
+              {files.map((f, i) => (
+                <li key={`${f.name}-${f.size}`} className="flex items-center gap-3 px-4 py-2 text-sm">
+                  <FileText className="size-4 shrink-0 text-primary" />
+                  <span className="flex-1 truncate">{f.name}</span>
+                  <button
+                    onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                    disabled={status === "working"}
+                    aria-label="حذف فایل"
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -134,7 +138,7 @@ function Index() {
             {status === "working" ? "در حال مغایرت‌گیری…" : "شروع مغایرت‌گیری"}
           </button>
           {!ready && (
-            <span className="text-xs text-muted-foreground">هر سه فایل را بارگذاری کنید.</span>
+            <span className="text-xs text-muted-foreground">ابتدا فایل‌ها را بارگذاری کنید.</span>
           )}
         </div>
 
